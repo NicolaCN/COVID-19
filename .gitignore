@@ -1,4 +1,4 @@
-# Created by https://www.toptal.com/developers/gitignore/api/python
+# Created by https://www.toptal.com/developers/gitignore/api/python+venv
 # Edit at https://www.toptal.com/developers/gitignore?templates=python
 
 ### Python ###
@@ -172,9 +172,6 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
-
-# End of https://www.toptal.com/developers/gitignore/api/python
-
 
 # Ignore airflow logs
 logs/
