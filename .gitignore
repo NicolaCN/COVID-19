@@ -189,7 +189,10 @@ logs/
 pyvenv.cfg
 .venv
 pip-selfcheck.json
+
+# remove log files
 *.log
+latest
 
 # No needs of csv file since we redownload them at each run
 *.csv
