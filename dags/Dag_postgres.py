@@ -22,7 +22,8 @@ datasets = {
     'population_data': 'https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL?downloadformat=csv',
     'cases_deaths': 'https://covid19.who.int/WHO-COVID-19-global-data.csv',
     'vaccinations': 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv',
-    'government_measures': 'https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv'
+    'government_measures': 'https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv',
+    'geojson': 'https://datahub.io/core/geo-countries/r/countries.geojson'
 }
 
 ingestion_buffer = {
@@ -30,7 +31,8 @@ ingestion_buffer = {
     'population_data': None,
     'cases_deaths': None,
     'vaccinations': None,
-    'government_measures': None
+    'government_measures': None,
+    'geojson': None
 }
 
 default_args = {
@@ -88,6 +90,13 @@ def _download_government_measures():
     response = requests.get(datasets['government_measures'])
     if response.status_code == 200:
         ingestion_buffer['government_measures'] = io.StringIO(response.content.decode())
+    else:
+        raise Exception("Error while downloading file")
+    
+def _download_geojson():
+    response = requests.get(datasets['geojson'])
+    if response.status_code == 200:
+        ingestion_buffer['geojson'] = io.StringIO(response.content.decode())
     else:
         raise Exception("Error while downloading file")
         
@@ -268,6 +277,16 @@ with TaskGroup("ingestion", dag=dag) as ingestion:
         trigger_rule='all_success',
         depends_on_past=False,
     )
+
+    # Download the population_data.csv file from the World Bank API
+    download_geojson_data = PythonOperator(
+        task_id='download_geojson_data',
+        dag=dag,
+        python_callable=_download_geojson,
+        op_kwargs={},
+        trigger_rule='all_success',
+        depends_on_past=False,
+    )
     
     ingestion_end = DummyOperator(
         task_id='ingestion_end',
@@ -349,7 +368,7 @@ with TaskGroup("staging", dag=dag) as staging:
         trigger_rule='all_success'
     )
     
-ingestion_start >> [download_cases_deaths, download_population_data, download_location_data, download_government_measures, download_location_data, download_vaccinations]
+ingestion_start >> [download_cases_deaths, download_population_data, download_location_data, download_government_measures, download_location_data, download_vaccinations, download_geojson_data]
 [download_cases_deaths, download_population_data, download_location_data, download_government_measures, download_location_data] >> ingestion_end 
 ingestion_end >> staging_start
 staging_start >> [create_time_csv, wrangle_cases_deaths_task, wrangle_vaccinations_task, wrangle_government_measures_task, wrangle_population_data_task, wrangle_location_data_task]
