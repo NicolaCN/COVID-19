@@ -8,24 +8,30 @@ from airflow.operators.dummy_operator import DummyOperator
 from airflow.operators.python_operator import PythonOperator, BranchPythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.utils.task_group import TaskGroup
-import pandas as pd
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-import csv
 import pandas as pd
+import csv
 import wbgapi as wb
 import numpy as np
 import sys
 import os
-from airflow.utils.task_group import TaskGroup
-#sys.path.insert(0,os.path.abspath(os.path.dirname("Utils.py")))
-#from Utils import _download_cases_deaths, _download_population_data, _download_vaccinations, _download_government_measures, _download_location_table, _create_time_csv, _wrangle_cases_deaths, _wrangle_vaccinations, _wrangle_government_measures, _wrangle_population_data, _wrangle_location_data
+import io
 
-location_csv = 'https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv'
-population_data='https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL?downloadformat=csv'
-cases_deaths='https://covid19.who.int/WHO-COVID-19-global-data.csv'
-vaccinations='https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv'
-government_measures='https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv'
+datasets = {
+    'location': 'https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv',
+    'population_data': 'https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL?downloadformat=csv',
+    'cases_deaths': 'https://covid19.who.int/WHO-COVID-19-global-data.csv',
+    'vaccinations': 'https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv',
+    'government_measures': 'https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv'
+}
 
+ingestion_buffer = {
+    'location': None,
+    'population_data': None,
+    'cases_deaths': None,
+    'vaccinations': None,
+    'government_measures': None
+}
 
 default_args = {
     'start_date': airflow.utils.dates.days_ago(0),
@@ -58,24 +64,32 @@ def _create_time_csv():
     df.to_csv('/opt/airflow/dags/postgres/time_table.csv', index=False)
 
 def _download_location_table():
-    response = requests.get(location_csv)
-    with open('/opt/airflow/dags/postgres/location.csv', 'wb') as f:
-        f.write(response.content)
+    response = requests.get(datasets['location'])
+    if response.status_code == 200:
+        ingestion_buffer['location'] = io.StringIO(response.content.decode())
+    else:
+        raise Exception("Error while downloading file")
     
 def _download_cases_deaths():
-    response = requests.get(cases_deaths)
-    with open('/opt/airflow/dags/postgres/cases_deaths.csv', 'wb') as f:
-        f.write(response.content)
+    response = requests.get(datasets['cases_deaths'])
+    if response.status_code == 200:
+        ingestion_buffer['cases_deaths'] = io.StringIO(response.content.decode())
+    else:
+        raise Exception("Error while downloading file")
 
 def _download_vaccinations():
-    response = requests.get(vaccinations)
-    with open('/opt/airflow/dags/postgres/vaccinations.csv', 'wb') as f:
-        f.write(response.content)
+    response = requests.get(datasets['vaccinations'])
+    if response.status_code == 200:
+        ingestion_buffer['vaccinations'] = io.StringIO(response.content.decode())
+    else:
+        raise Exception("Error while downloading file")
 
 def _download_government_measures():
-    response = requests.get(government_measures)
-    with open('/opt/airflow/dags/postgres/government_measures.csv', 'wb') as f:
-        f.write(response.content)
+    response = requests.get(datasets['government_measures'])
+    if response.status_code == 200:
+        ingestion_buffer['government_measures'] = io.StringIO(response.content.decode())
+    else:
+        raise Exception("Error while downloading file")
         
 # Population data from the World Bank API, used to calculate the per capita metrics 
 # for every table (e.g. total_vaccinations_per_hundred, people_vaccinated_per_hundred, etc.)         
