@@ -1,0 +1,8 @@
+pandas
+jupyterlab
+notebook
+redis
+neo4j
+pymongo
+requests
+numpy
