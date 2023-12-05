@@ -43,7 +43,7 @@ default_args = {
     "depends_on_past": False,
 }
 
-dag = DAG('covid_data_dag_postgres_plis', default_args=default_args, schedule_interval='@daily')
+dag = DAG('dag', default_args=default_args, schedule_interval='@daily')
 
 
 def _create_time_csv():
@@ -133,7 +133,7 @@ def _store_cases_deaths():
     
 
 def _store_vaccinations():
-    df = pd.read_csv(vaccinations).iloc[:, :9]
+    df = pd.read_csv(vaccinations, header=0).iloc[:, :9]
     json = df.to_dict('records')
     client = MongoClient('mongodb://mongo:27017/')
     db = client["covid"]
@@ -212,25 +212,35 @@ def _inject_growth(df, prefix, periods):
         .sum()
         .reset_index(level=0, drop=True)
     )
-    df[[cases_growth_colname, deaths_growth_colname]] = (
-        df[["Country", cases_colname, deaths_colname]]
-        .groupby("Country")[[cases_colname, deaths_colname]]
+    '''df[[cases_growth_colname, deaths_growth_colname]] = (
+        df[["Country_code", cases_colname, deaths_colname]]
+        .groupby("Country_code")[[cases_colname, deaths_colname]]
         .pct_change(periods=periods, fill_method=None)
         .round(3)
         .replace([np.inf, -np.inf], pd.NA)
         * 100
-    )
+    )'''
+    
+    # The functions above breaks the code, so I had to use the code below
+    dff = df[["Country_code", cases_colname, deaths_colname]]
+    dff = dff.groupby("Country_code")[[cases_colname, deaths_colname]]
+    dff = dff.pct_change(periods=periods, fill_method=None)
+    dff = dff.round(3)
+    mask = np.isinf(dff) | np.isneginf(dff)
+    dff = dff.where(~mask, pd.NA) * 100
+    df[[cases_growth_colname, deaths_growth_colname]] = dff
+    print("Done")
     
     return df
     
-def _inject_population(df, date_col):
-    'dags\postgres\population_data.csv'
+def _inject_population(df, date_col, country_col='Country'):
+
     df_population = pd.read_csv('/opt/airflow/dags/files/population_data.csv')
     # Extract year from Date_reported column and create a new column Year
-    df['Year'] = pd.DatetimeIndex([date_col]).year
+    df['Year'] = df[date_col].dt.year
     # 
     # Merge the two dataframes based on Country and Year columns
-    df_merged = pd.merge(df, df_population, how='left', on=['Country', 'Year'])
+    df_merged = pd.merge(df, df_population, how='left', left_on=[country_col, 'Year'], right_on=['Country', 'Year'])
     df_merged.drop('Year', axis=1, inplace=True)
     
     return df_merged
@@ -245,11 +255,21 @@ def _per_capita(df, measures):
 
 def convert_iso_code(df, iso_col):
     converting_table = pd.read_csv('/opt/airflow/dags/files/location.csv')
-    converting_table = converting_table[['alpha-2', 'alpha-3']]
+    converting_table = converting_table[['alpha-2', 'alpha-3', 'name']]
     merged = pd.merge(df, converting_table, how='left', left_on=[iso_col], right_on=['alpha-2'])
     
     merged.drop([iso_col, 'alpha-2'], axis=1, inplace=True)
     merged.rename(columns={'alpha-3': 'Country_code'}, inplace=True)
+    
+    # For the vaccinations table we need to keep the name of the country
+    # to merge it with the population table, because initially the vaccinations table
+    # has only the iso_code column
+    if iso_col == 'location_key':
+        merged.rename(columns={'name': iso_col}, inplace=True)
+    
+    # For the cases_deaths table we already have the Country column so we can drop the name column
+    if iso_col == 'Country_code':
+        merged.drop('name', axis=1, inplace=True)
     return merged
 
 def _wrangle_cases_deaths():
@@ -257,8 +277,11 @@ def _wrangle_cases_deaths():
     
     df = format_date(df, date_col="Date_reported")
     df = discard_rows(df, ["New_cases", "New_deaths"])
-    df = _inject_growth(df, 'Weekly', 7)   
+    print("Injecting growth…")
+    df = _inject_growth(df, 'Weekly', 7)
+    print("Injecting population…")   
     df = _inject_population(df, date_col="Date_reported")
+    print("Calculating per capita…")
     df = _per_capita(df, ["New_cases", "New_deaths", "Cumulative_cases", 
                           "Cumulative_deaths", "Weekly_cases", "Weekly_deaths",])
     df = convert_iso_code(df, iso_col='Country_code')
@@ -273,8 +296,6 @@ def _inject_growth_vacc(df, prefix, periods):
     vaccinated_growth_colname = "%s_pct_growth_persons_vaccinated" % prefix
     fully_vaccinated_growth_colname = "%s_pct_growth_persons_fully_vaccinated" % prefix
     vaccine_doses_growth_colname = "%s_pct_growth_vaccine_doses_administered" % prefix
-    cases_growth_colname = "%s_pct_growth_cases" % prefix
-    deaths_growth_colname = "%s_pct_growth_deaths" % prefix
 
     df[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]] = (
         df[["location_key", "new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"]]
@@ -283,14 +304,14 @@ def _inject_growth_vacc(df, prefix, periods):
         .sum()
         .reset_index(level=0, drop=True)
     )
-    df[[cases_growth_colname, deaths_growth_colname]] = (
-        df[["location_key", vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
-        .groupby("location_key")[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
-        .pct_change(periods=periods, fill_method=None)
-        .round(3)
-        .replace([np.inf, -np.inf], pd.NA)
-        * 100
-    )
+
+    dff = df[["location_key", vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
+    dff = dff.groupby("location_key")[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
+    dff = dff.pct_change(periods=periods, fill_method=None)
+    dff = dff.round(3)
+    mask = np.isinf(dff) | np.isneginf(dff)
+    dff = dff.where(~mask, pd.NA) * 100
+    df[[vaccinated_growth_colname, fully_vaccinated_growth_colname, vaccine_doses_growth_colname]] = dff
     
     return df
 
@@ -305,17 +326,21 @@ def rollup(df):
 
 def _wrangle_vaccinations():
     df = pd.read_csv('/opt/airflow/dags/files/vaccinations.csv')
-    df = df.iloc[:, :9]     
+    df = df.iloc[:, :8]     
     df = format_date(df, date_col="date")
     df = discard_rows(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"])
-    df = rollup(df) 
-    df = _inject_growth_vacc(df, 'Weekly', 7)
-    df = _inject_population(df, date_col="date")
-    df = _per_capita(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered" 
-                          "weekly_persons_vaccinated", "weekly_persons_fully_vaccinated", "weekly_vaccine_doses_administered"])
     df = convert_iso_code(df, iso_col='location_key')
+    print("rolling up…")
+    df = rollup(df) 
+    print("Injecting growth…")
+    df = _inject_growth_vacc(df, 'Weekly', 7)
+    print("Injecting population…")
+    df = _inject_population(df, date_col="date", country_col='location_key')
+    df = _per_capita(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered", 
+                          "Weekly_persons_vaccinated", "Weekly_persons_fully_vaccinated", "Weekly_vaccine_doses_administered"])
     
-    #df.to_csv('/opt/airflow/dags/postgres/vaccinations_wrangled.csv', index=False)
+    
+    df.to_csv('/opt/airflow/dags/postgres/vaccinations_wrangled.csv', index=False)
 
 def _wrangle_government_measures():
     df = pd.read_csv('/opt/airflow/dags/files/government_measures.csv')
