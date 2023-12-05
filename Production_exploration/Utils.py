@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import wbgapi as wb
+
 
 def format_date(df: pd.DataFrame, date_col) -> pd.DataFrame:
     print("Formatting date…")
@@ -118,8 +120,8 @@ def rollup(df):
     
     return df
 
-def _wrangle_cases_deaths(path='./files/cases_deaths.csv'):
-    df = pd.read_csv(path)
+def _wrangle_cases_deaths(source_path='./files/cases_deaths.csv'):
+    df = pd.read_csv(source_path)
     
     df = format_date(df, date_col="Date_reported")
     df = discard_rows(df, ["New_cases", "New_deaths"])
@@ -136,8 +138,8 @@ def _wrangle_cases_deaths(path='./files/cases_deaths.csv'):
     df.to_csv('./files_wrangled/cases_deaths.csv', index=False)
     return df
 
-def _wrangle_vaccinations(path='./files/vaccinations.csv'):
-    df = pd.read_csv(path)
+def _wrangle_vaccinations(source_path='./files/vaccinations.csv'):
+    df = pd.read_csv(source_path)
     df = df.iloc[:, :9]     
     df = format_date(df, date_col="date")
     df = discard_rows(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"])
@@ -154,8 +156,8 @@ def _wrangle_vaccinations(path='./files/vaccinations.csv'):
     df.to_csv('./files_wrangled/vaccinations.csv', index=False)
     return df
 
-def _wrangle_government_measures(path='./files/government_measures.csv'):
-    df = pd.read_csv(path)
+def _wrangle_government_measures(source_path='./files/government_measures.csv'):
+    df = pd.read_csv(source_path)
     # Apply data wrangling here
     
     # Mantain only the columns of interest
@@ -165,8 +167,8 @@ def _wrangle_government_measures(path='./files/government_measures.csv'):
     df.to_csv('./files_wrangled/government_measures.csv', index=False)
     return df
 
-def _wrangle_population_data(path='./files/population_data.csv'):
-    data = pd.read_csv(path)
+def _wrangle_population_data():
+    data = wb.data.DataFrame('SP.POP.TOTL', labels=True, time=range(2019, 2023))
     
     data["YR2023"] = data["YR2022"]
     
