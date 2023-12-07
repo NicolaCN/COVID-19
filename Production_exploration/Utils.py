@@ -73,7 +73,7 @@ def _per_capita(df, measures):
     return df
 
 def convert_iso_code(df, iso_col):
-    converting_table = pd.read_csv('./files/location.csv')
+    converting_table = pd.read_csv('./files_wrangled/location.csv')
     converting_table = converting_table[['alpha-2', 'alpha-3', 'name']]
     merged = pd.merge(df, converting_table, how='left', left_on=[iso_col], right_on=['alpha-2'])
     
@@ -140,7 +140,7 @@ def _wrangle_cases_deaths(source_path='./files/cases_deaths.csv'):
 
 def _wrangle_vaccinations(source_path='./files/vaccinations.csv'):
     df = pd.read_csv(source_path)
-    df = df.iloc[:, :9]     
+    df = df.iloc[:, :8]     
     df = format_date(df, date_col="date")
     df = discard_rows(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"])
     df = convert_iso_code(df, iso_col='location_key')
@@ -179,7 +179,7 @@ def _wrangle_population_data():
     #df.to_csv('/opt/airflow/dags/postgres/population_data_wrangled.csv', index=False)
     return data_reshaped
     
-def _create_time_csv(path='./files_wrangled/time_table.csv'):
+def _create_time_csv(dest_path='./files_wrangled/time_table.csv'):
     start_date = f"{2019}-01-01"
     end_date = f"{2023}-12-31"
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
