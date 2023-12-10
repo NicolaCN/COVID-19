@@ -12,34 +12,26 @@ import pandas as pd
 import requests
 import wbgapi as wb
 import numpy as np
+import pickle
+import json
 import io
 
 
 # Data structures
 ## Datasets URLs
 datasets = {
-    "location": "https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.csv",
-    "population_data": "https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL?downloadformat=csv",
-    "cases_deaths": "https://covid19.who.int/WHO-COVID-19-global-data.csv",
-    "vaccinations": "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv",
-    "government_measures": "https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv",
-    "geojson": "https://datahub.io/core/geo-countries/r/countries.geojson",
-    "gdp_growth": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?downloadformat=csv",
-}
-
-## Ingestion buffer
-ingestion_buffer = {
-    "location": None,
-    "population_data": None,
-    "cases_deaths": None,
-    "vaccinations": None,
-    "government_measures": None,
-    "geojson": None,
-    "gdp_growth": None,
+    "location": "https://raw.githubusercontent.com/lukes/ISO-3166-Countries-with-Regional-Codes/master/all/all.json", # JSON
+    "population_data": "https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL?downloadformat=csv", # CSV
+    "cases_deaths": "https://covid19.who.int/WHO-COVID-19-global-data.csv", # CSV
+    "vaccinations": "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv", # CSV
+    "government_measures": "https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/main/data/OxCGRT_compact_national_v1.csv", # CSV
+    "geojson": "https://datahub.io/core/geo-countries/r/countries.geojson", # GEOJSON
+    "gdp_growth": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?downloadformat=csv", # CSV
 }
 
 # DBs connectors
-mongoClient = MongoClient("mongodb://mongo:27017/")
+mongoClient = MongoClient("mongodb://root:fode2023@mongo")
+mongoDatabase = mongoClient["covid"]
 
 # Airflow default arguments
 default_args = {
@@ -72,11 +64,14 @@ def _create_time_csv():
     df = pd.DataFrame(data)
     df.to_csv("/opt/airflow/dags/postgres/time_table.csv", index=False)
 
+def csv_to_json(filename, header=None):
+    data = pd.read_csv(filename, header=header)
+    return data.to_dict("records")
 
 def _download_location_table():
     response = requests.get(datasets["location"])
     if response.status_code == 200:
-        ingestion_buffer["location"] = io.StringIO(response.content.decode())
+        return response.json()
     else:
         raise Exception("Error while downloading file")
 
@@ -84,7 +79,7 @@ def _download_location_table():
 def _download_cases_deaths():
     response = requests.get(datasets["cases_deaths"])
     if response.status_code == 200:
-        ingestion_buffer["cases_deaths"] = io.StringIO(response.content.decode())
+        return io.StringIO(response.content.decode())
     else:
         raise Exception("Error while downloading file")
 
@@ -92,7 +87,7 @@ def _download_cases_deaths():
 def _download_vaccinations():
     response = requests.get(datasets["vaccinations"])
     if response.status_code == 200:
-        ingestion_buffer["vaccinations"] = io.StringIO(response.content.decode())
+        return io.StringIO(response.content.decode())
     else:
         raise Exception("Error while downloading file")
 
@@ -100,7 +95,7 @@ def _download_vaccinations():
 def _download_government_measures():
     response = requests.get(datasets["government_measures"])
     if response.status_code == 200:
-        ingestion_buffer["government_measures"] = io.StringIO(response.content.decode())
+        return io.StringIO(response.content.decode())
     else:
         raise Exception("Error while downloading file")
 
@@ -108,121 +103,108 @@ def _download_government_measures():
 def _download_geojson():
     response = requests.get(datasets["geojson"])
     if response.status_code == 200:
-        ingestion_buffer["geojson"] = io.StringIO(response.content.decode())
+        return response.json()
     else:
         raise Exception("Error while downloading file")
 
-
-def _download_gdp_growth():
-    response = requests.get(datasets["gdp_growth"])
-    if response.status_code == 200:
-        ingestion_buffer["gdp_growth"] = io.StringIO(response.content.decode())
-    else:
-        raise Exception("Error while downloading file")
-
-
-# Population data from the World Bank API, used to calculate the per capita metrics
-# for every table (e.g. total_vaccinations_per_hundred, people_vaccinated_per_hundred, etc.)
-def _download_population_data():
-    data = wb.data.DataFrame("SP.POP.TOTL", labels=True, time=range(2019, 2023))
-
-    # Manually add the population for 2023 and set it equal to the population of 2022
-    data["YR2023"] = data["YR2022"]
-
-    data_reshaped = pd.melt(
-        data, id_vars=["Country"], var_name="Year", value_name="population"
-    )
-    data_reshaped["Year"] = data_reshaped["Year"].apply(lambda year: int(year[2:]))
-
-    data_reshaped.to_csv("/opt/airflow/dags/postgres/population_data.csv", index=False)
-
-
-def csv_to_json(filename, header=None):
-    data = pd.read_csv(filename, header=header)
-    return data.to_dict("records")
-
-
-def _store_location_csv():
+def _store_location_csv(ti):
     # Code to store location.csv in MongoDB
+    buffer = ti.xcom_pull(key='return_value', task_ids='ingestion.download_location_data')
 
-    db = mongoClient["covid"]
-    db.drop_collection("location")
-    collection = db["location"]
-    collection.insert_many(csv_to_json(location_csv, 0))
+    mongoDatabase.drop_collection("location")
 
-    """with open('/opt/airflow/dags/postgres/location.csv', 'r') as f:
-        # Read the CSV file
-        data = f.read()
-        # Insert the data into the collection
-        collection.insert_many(data)"""
-
+    collection = mongoDatabase["location"]
+    collection.insert_many(buffer)
 
 def _store_population_data():
     data = wb.data.DataFrame("SP.POP.TOTL", labels=True, time=range(2019, 2023))
 
-    db = mongoClient["covid"]
-    db.drop_collection("population_data")
-    collection = db["population_data"]
+    mongoDatabase.drop_collection("population_data")
+
+    collection = mongoDatabase["population_data"]
     collection.insert_many(data.to_dict("records"))
 
 
 # For big files it might be better to first store
-def _store_cases_deaths():
-    db = mongoClient["covid"]
-    db.drop_collection("cases_deaths")
-    collection = db["cases_deaths"]
-    collection.insert_many(csv_to_json(cases_deaths, 0))
+def _store_cases_deaths(ti):
+    buffer = ti.xcom_pull(key='return_value', task_ids='ingestion.download_cases_deaths')
 
-
-def _store_vaccinations():
-    df = pd.read_csv(vaccinations, header=0).iloc[:, :9]
+    df = pd.read_csv(buffer)
     json = df.to_dict("records")
 
-    db = mongoClient["covid"]
-    db.drop_collection("vaccinations")
-    collection = db["vaccinations"]
+    mongoDatabase.drop_collection("cases_deaths")
+
+    collection = mongoDatabase["cases_deaths"]
     collection.insert_many(json)
 
 
-def _store_government_measures():
-    db = mongoClient["covid"]
-    db.drop_collection("government_measures")
-    collection = db["government_measures"]
-    collection.insert_many(csv_to_json(government_measures, 0))
+def _store_vaccinations(ti):
+    buffer = ti.xcom_pull(key='return_value', task_ids='ingestion.download_vaccinations')
+
+    df = pd.read_csv(buffer, header=0).iloc[:, :9]
+    json = df.to_dict("records")
+
+    mongoDatabase.drop_collection("vaccinations")
+
+    collection = mongoDatabase["vaccinations"]
+    collection.insert_many(json)
+
+
+def _store_government_measures(ti):
+    buffer = ti.xcom_pull(key='return_value', task_ids='ingestion.download_government_measures')
+
+    df = pd.read_csv(buffer)
+    json = df.to_dict("records")
+
+    mongoDatabase.drop_collection("government_measures")
+
+    collection = mongoDatabase["government_measures"]
+    collection.insert_many(json)
+
+def _store_geojson(ti):
+    buffer = ti.xcom_pull(key='return_value', task_ids='ingestion.download_geojson_data')
+
+    mongoDatabase.drop_collection("geojson")
+
+    collection = mongoDatabase["geojson"]
+    collection.insert_many(buffer)
+
+def _store_gdp_growth():
+    data = wb.data.DataFrame("NY.GDP.MKTP.KD.ZG", labels=True, time=range(2019, 2023))
+
+    mongoDatabase.drop_collection("gdp_growth")
+
+    collection = mongoDatabase["gdp_growth"]
+    collection.insert_many(data.to_dict("records"))
 
 
 def _pull_location_csv():
     # Code to pull location.csv from MongoDB
-    db = mongoClient["covid"]
-    collection = db["location"]
+    collection = mongoDatabase["location"]
     data = pd.DataFrame(list(collection.find())).drop("_id", axis=1)
     data.to_csv("/opt/airflow/dags/files/location.csv", index=False)
 
 
 def _pull_population_data():
-    db = mongoClient["covid"]
-    collection = db["population_data"]
+    collection = mongoDatabase["population_data"]
     data = pd.DataFrame(list(collection.find())).drop("_id", axis=1)
     data.to_csv("/opt/airflow/dags/files/population_data.csv", index=False)
 
 
 def _pull_cases_deaths():
-    db = mongoClient["covid"]
-    collection = db["cases_deaths"]
+    collection = mongoDatabase["cases_deaths"]
     data = pd.DataFrame(list(collection.find())).drop("_id", axis=1)
     data.to_csv("/opt/airflow/dags/files/cases_deaths.csv", index=False)
 
 
 def _pull_vaccinations():
-    db = mongoClient["covid"]
-    collection = db["vaccinations"]
+    collection = mongoDatabase["vaccinations"]
     data = pd.DataFrame(list(collection.find())).drop("_id", axis=1)
     data.to_csv("/opt/airflow/dags/files/vaccinations.csv", index=False)
 
 
 def _pull_government_measures():
-    db = mongoClient["covid"]
-    collection = db["government_measures"]
+    collection = mongoDatabase  ["government_measures"]
     data = pd.DataFrame(list(collection.find())).drop("_id", axis=1)
     data.to_csv("/opt/airflow/dags/files/government_measures.csv", index=False)
 
@@ -595,16 +577,6 @@ with TaskGroup("ingestion", dag=dag) as ingestion:
         depends_on_past=False,
     )
 
-    # Download the population_data.csv file from the World Bank API
-    download_population_data = PythonOperator(
-        task_id="download_population_data",
-        dag=dag,
-        python_callable=_download_population_data,
-        op_kwargs={},
-        trigger_rule="all_success",
-        depends_on_past=False,
-    )
-
     # Download the location.csv file from the GitHub repository
     download_location_data = PythonOperator(
         task_id="download_location_data",
@@ -620,15 +592,6 @@ with TaskGroup("ingestion", dag=dag) as ingestion:
         task_id="download_geojson_data",
         dag=dag,
         python_callable=_download_geojson,
-        op_kwargs={},
-        trigger_rule="all_success",
-        depends_on_past=False,
-    )
-
-    download_gdp_growth = PythonOperator(
-        task_id="download_gdp_growth",
-        dag=dag,
-        python_callable=_download_gdp_growth,
         op_kwargs={},
         trigger_rule="all_success",
         depends_on_past=False,
@@ -679,6 +642,24 @@ with TaskGroup("ingestion", dag=dag) as ingestion:
         task_id="store_government_measures",
         dag=dag,
         python_callable=_store_government_measures,
+        op_kwargs={},
+        trigger_rule="all_success",
+        depends_on_past=False,
+    )
+
+    store_geojson = PythonOperator(
+        task_id="store_geojson",
+        dag=dag,
+        python_callable=_store_geojson,
+        op_kwargs={},
+        trigger_rule="all_success",
+        depends_on_past=False,
+    )
+
+    store_gdp_growth = PythonOperator(
+        task_id="store_gdp_growth",
+        dag=dag,
+        python_callable=_store_gdp_growth,
         op_kwargs={},
         trigger_rule="all_success",
         depends_on_past=False,
@@ -855,7 +836,6 @@ with TaskGroup("staging", dag=dag) as staging:
 # DAGs
 ingestion_start >> [
     download_cases_deaths,
-    download_population_data,
     download_location_data,
     download_government_measures,
     download_location_data,
@@ -864,7 +844,6 @@ ingestion_start >> [
 ]
 [
     download_cases_deaths,
-    download_population_data,
     download_location_data,
     download_government_measures,
     download_location_data,
