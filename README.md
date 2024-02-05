@@ -90,5 +90,3 @@ Moreover, the dimension tables Time and Location are created, to easly roll-up t
 
 ## Production
 
-E mo so caazzi
-
