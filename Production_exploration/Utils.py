@@ -53,8 +53,12 @@ def _inject_growth(df, prefix, periods):
     print("Done")
     return df
     
-def _inject_population(df, date_col, country_col='Country'):
+def _inject_population(df, date_col, country_col='Country_code'):
     df_population = pd.read_csv('./files_wrangled/population_data.csv')
+    
+    # Make sure date_col is in datetime format
+    df[date_col] = pd.to_datetime(df[date_col], format="%Y-%m-%d")
+    
     # Extract year from Date_reported column and create a new column Year
     df['Year'] = df[date_col].dt.year
 
@@ -64,15 +68,15 @@ def _inject_population(df, date_col, country_col='Country'):
     
     return df_merged
 
-def _per_capita(df, measures):
+def _per_capita(df, measures, denom=1e6, denom_name='_per_million'):
     for measure in measures:
-        pop_measure = measure + "_per_million"
-        series = df[measure] / (df["population"] / 1e6)
+        pop_measure = measure + denom_name
+        series = df[measure] / (df["population"] / denom)
         df[pop_measure] = series.round(decimals=3)
     #df = drop_population(df)
     return df
 
-def convert_iso_code(df, iso_col):
+def convert_iso_code(df, iso_col, country_col):
     converting_table = pd.read_csv('./files_wrangled/location.csv')
     converting_table = converting_table[['alpha-2', 'alpha-3', 'name']]
     merged = pd.merge(df, converting_table, how='left', left_on=[iso_col], right_on=['alpha-2'])
@@ -80,9 +84,12 @@ def convert_iso_code(df, iso_col):
     merged.drop([iso_col, 'alpha-2'], axis=1, inplace=True)
     merged.rename(columns={'alpha-3': 'Country_code'}, inplace=True)
     
-    if iso_col == 'location_key':
-        merged.rename(columns={'name': iso_col}, inplace=True)
-    
+    if country_col is None:
+        merged.rename(columns={'name': 'Country_name'}, inplace=True)
+    else:
+        merged.drop(country_col, axis=1, inplace=True)
+        merged.rename(columns={'name': 'Country_name'}, inplace=True)
+            
     return merged
 
 def _inject_growth_vacc(df, prefix, periods):
@@ -94,15 +101,16 @@ def _inject_growth_vacc(df, prefix, periods):
     vaccine_doses_growth_colname = "%s_pct_growth_vaccine_doses_administered" % prefix
 
     df[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]] = (
-        df[["location_key", "new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"]]
-        .groupby("location_key")[["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"]]
+        df[["Country_code", "new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"]]
+        .groupby("Country_code")[["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"]]
         .rolling(window=periods, min_periods=periods - 1, center=False)
         .sum()
         .reset_index(level=0, drop=True)
     )
+    
 
-    dff = df[["location_key", vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
-    dff = dff.groupby("location_key")[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
+    dff = df[["Country_code", vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
+    dff = dff.groupby("Country_code")[[vaccinated_colname, fully_vaccinated_colname, vaccine_doses_colname]]
     dff = dff.pct_change(periods=periods, fill_method=None)
     dff = dff.round(3)
     mask = np.isinf(dff) | np.isneginf(dff)
@@ -120,19 +128,43 @@ def rollup(df):
     
     return df
 
+
+def allign_time_ranges(df):
+    # Step 1: Create a DataFrame with the desired time range
+    start_date = "2020-12-02"  # Start date of the desired time range
+    end_date = df["date"].max()    # End date of the desired time range
+    date_r = pd.date_range(start=start_date, end=end_date)
+
+    # Create a new DataFrame with 'country' and 'date' columns
+    countries = pd.Series(df['Country_code'].unique(), name='country')
+    time_range_df = pd.DataFrame({'date': date_r})
+    time_range_df['date'] = time_range_df['date'].astype(str)
+
+    dfm = time_range_df.merge(countries, how='cross').sort_values(by=['country', 'date']).reset_index(drop=True)
+
+    m = df.merge(dfm, how='right', left_on=['Country_code', 'date'], right_on=['country', 'date']).sort_values(by=['country', 'date']).reset_index(drop=True)
+    
+    m.drop(columns=['Country_code'], inplace=True)
+    m.rename(columns={'country': 'Country_code'}, inplace=True)
+    
+    return m
+
 def _wrangle_cases_deaths(source_path='./files/cases_deaths.csv'):
-    df = pd.read_csv(source_path)
+    storage_options = {'User-Agent': 'Mozilla/5.0'}
+    df = pd.read_csv(source_path, storage_options = storage_options)
     
     df = format_date(df, date_col="Date_reported")
     df = discard_rows(df, ["New_cases", "New_deaths"])
     print("Injecting growth…")
     df = _inject_growth(df, 'Weekly', 7)
+    print("Converting ISO code…")
+    df = convert_iso_code(df, iso_col='Country_code', country_col='Country')
     print("Injecting population…")   
     df = _inject_population(df, date_col="Date_reported")
     print("Calculating per capita…")
     df = _per_capita(df, ["New_cases", "New_deaths", "Cumulative_cases", 
                           "Cumulative_deaths", "Weekly_cases", "Weekly_deaths",])
-    df = convert_iso_code(df, iso_col='Country_code')
+    
     
     
     df.to_csv('./files_wrangled/cases_deaths.csv', index=False)
@@ -141,17 +173,23 @@ def _wrangle_cases_deaths(source_path='./files/cases_deaths.csv'):
 def _wrangle_vaccinations(source_path='./files/vaccinations.csv'):
     df = pd.read_csv(source_path)
     df = df.iloc[:, :8]     
-    df = format_date(df, date_col="date")
-    df = discard_rows(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"])
-    df = convert_iso_code(df, iso_col='location_key')
     print("rolling up…")
     df = rollup(df) 
+    df = convert_iso_code(df, iso_col='location_key', country_col=None)
+    df = allign_time_ranges(df)
+    df = format_date(df, date_col="date")
+    df = discard_rows(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered"])
+    #df = convert_iso_code(df, iso_col='location_key', country_col=None)
     print("Injecting growth…")
     df = _inject_growth_vacc(df, 'Weekly', 7)
     print("Injecting population…")
-    df = _inject_population(df, date_col="date", country_col='location_key')
-    df = _per_capita(df, ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered", 
-                          "Weekly_persons_vaccinated", "Weekly_persons_fully_vaccinated", "Weekly_vaccine_doses_administered"])
+    df = _inject_population(df, date_col="date", country_col='Country_code')
+    df = _per_capita(df, 
+                     ["new_persons_vaccinated", "new_persons_fully_vaccinated", "new_vaccine_doses_administered", 
+                      "Weekly_persons_vaccinated", "Weekly_persons_fully_vaccinated", "Weekly_vaccine_doses_administered",
+                      "cumulative_vaccine_doses_administered"],
+                     denom=1e2,
+                     denom_name='_per_hundred')
     
     df.to_csv('./files_wrangled/vaccinations.csv', index=False)
     return df
@@ -171,9 +209,12 @@ def _wrangle_population_data():
     data = wb.data.DataFrame('SP.POP.TOTL', labels=True, time=range(2019, 2023))
     
     data["YR2023"] = data["YR2022"]
-    
-    data_reshaped = pd.melt(data, id_vars=['Country'], var_name='Year', value_name='population')
+    data = data.reset_index()
+
+    data_reshaped = pd.melt(data, id_vars=['economy', 'Country'], var_name='Year', value_name='population')
+    data_reshaped.drop('Country', axis=1, inplace=True)
     data_reshaped['Year'] = data_reshaped['Year'].apply(lambda year: int(year[2:]))
+    data_reshaped.rename(columns={'economy': 'Country'}, inplace=True)
     
     data_reshaped.to_csv('./files_wrangled/population_data.csv', index=False)
     #df.to_csv('/opt/airflow/dags/postgres/population_data_wrangled.csv', index=False)
@@ -194,5 +235,5 @@ def _create_time_csv(dest_path='./files_wrangled/time_table.csv'):
         }
     
     df = pd.DataFrame(data)
-    df.to_csv(path, index=False)
+    df.to_csv(dest_path, index=False)
     return df
