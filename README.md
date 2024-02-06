@@ -113,8 +113,16 @@ Moreover, the dimension tables Time and Location are created, to easly change th
 
 ## Production
 
-Finally, we have the data ready to be visualized.
-Given the types of data, there are many way and things to visualize. Thus, a streamlit application is built to give the user the freedom to explore the data in the most appropriate manner.
+### Pulling
+
+First, the data are retrieved from the Postgres database through queries that select only the fields and files needed for the visualizations, and they are immediately stored in **dags/files_production**.
+Here, the airflow dag stops an the production is carried on locally.
+
+### Stramlit
+
+Finally, we have the data ready to be visualized. Given the types of data, there are many ways and things to visualize. Thus, a Streamlit application is built to give the user the freedom to explore the data in the most appropriate manner.
+
+The code that builds the application is contained in **dags/Streamlit_app.py** and it should be launched by running locally the **dags/Production_notbook.ipynb**.
 
 To answer the first question (i.e. How did COVID-19 spread globally, and which countries were most severely affected in terms of the number of cases and deaths?), two types of animated plots are used.
 
@@ -122,8 +130,47 @@ To answer the first question (i.e. How did COVID-19 spread globally, and which c
 
 - **Animated Line Plot** of cases or deaths statitics, showing the evoultion of the metrics for few countries (max 5). The user get to choose the countries and the metrics to explore. 
 
-To answer the second question (i.e. How did different countries respond to the pandemic in terms of vaccination efforts, and what impact did this have on the evolution of the pandemic?), first an animated world map is plotted, to show the evolution of the vaccination campaign over time. Then, a three line plots, showing the evolution of the *cumulative vaccinations* compared to the evoultion of *New cases* and *New deaths*.
-The result clearly shows the effects of the vaccinations on the deaths, whereas this is not visable with respect to the *cases*. This is alligned  with existing literature.
+These visualizations clearly show the evolution of the pandemic over time. The statistics related to confirmed cases are a good indicator of the COVID-19 waves, whereas the deaths indicate better if the management of a country was effective or not.
+
+To answer the second question (i.e. How did different countries respond to the pandemic in terms of vaccination efforts, and what impact did this have on the evolution of the pandemic?), two visualizations are exploited.
+
+- **Animated World Map**, similar to the cases and deaths plots. Again, the user get to choose the metrics to visualize. 
+
+- **Three Static Line Plots**, showing the evolution of the *cumulative vaccinations* compared to the evoultion of *New cases* and *New deaths*.
+
+The results clearly show the effects of the vaccinations on the deaths, whereas this is not visable with respect to the *cases*.
+
+### Production_backup.ipynb
+
+This notebook contains pretty much the same analysis as the Streamlit application. It was created for two main reasons:
+
+- **Issues resilience**: if some issues arise with the Streamlit application, the notebook is available as a backup for exploring the analysis.
+
+- **Playing with Data**: if someone wants to explore the analysis and visualizations more deeply, they can manipulate the data using the notebook, which is clearly more usable than the Streamlit application.
+
+
+## How to Use
+
+- Run the command *_docker compose up_* in the terminal
+
+- Go on *_localhost:8080_*, where you will find the airflow web interface.
+
+- Set the connection **postgres** and **mongo**. The credential for postgres are *username=airflow* and *password=airflow*, for the mongo no username or password have been set, just leave blank spaces.
+
+- Trigger the dag, it will take about 5 minutes to complete.
+
+- Once the dag is finished, the two files **cases_deaths** and **vaccinations** will be in the path **dags/files_production**
+
+- Now, run the only cell contained in **dags/Production_notebook.ipynb** to run the streamlit application
+
+- A web page should automatically open at **localhost:8501**
+
+- Now you can freely explore the data!
+
+
+
+
+
 
 
 
