@@ -5,7 +5,7 @@
 I wanted to explore and analyse in a quantitative way the covid 19 period, started towards the end of 2019 and currently ongoing, although under control.
 
 Looking back on those difficult years, I were curious to see how covid was progressing, in terms of cases and deaths, in different countries around the world and over time. 
-We also wanted to understand how the countries reacted to the pandemic in terms of vaccinations and the impact that the campaign had on the spread of the disease.
+I also wanted to understand how the countries reacted to the pandemic in terms of vaccinations and the impact that the campaign had on the spread of the disease.
 To do this, I collected data from a variety of sources with the aim of integrating them and calculating statistical aggregates useful for a clear and enriched visualisation of how covid has spread around the world. 
 
 Thus, the following questions have been formulated:
@@ -43,13 +43,18 @@ We need this data to compute population's dependents statistics.
 
 The pipeline for this first phase is represented by the graph below. 
 
-The files are retrieved from the various sources thorugh the *_requests_* and *_io_* libraries and temporarly stored in buffer variables. Then, they are all stored in Mongo. For the big files **Government measures** and **vaccinations** some preprocessing steps are anticipated before being uploaded to MongoDB. Specifically, for *_Government measures_*, more than 40 columns are discarded as they are not useful for the purpose of the project. For *_Vaccinations_*, around 10 rows containing vaccination-specific information are discarded, and a roll-up is performed to obtain a coarser granularity, matchable with that of *_Cases & Deaths_*. This was done to speed up the uploading process significantly
+The files are retrieved from the various sources thorugh the *_requests_* and *_io_* libraries and temporarly stored in buffer variables. Then, they are all stored in Mongo. 
+
+For the large files **Government measures** and **vaccinations** some preprocessing steps are anticipated before being uploaded to MongoDB. Specifically, for *_Government measures_*, more than 40 columns are discarded as they are not useful for the purpose of the project. For *_Vaccinations_*, around 10 columns containing vaccination-specific information are discarded, and a roll-up is performed to obtain a coarser granularity, matchable with that of *_Cases & Deaths_*. This was done to speed up the uploading process significantly.
+
 No additional operations are needed in this phase.
+
+![Ingestion](Ingestion_dag.png)
 
 
 ## Staging
 
-Here comes the trickier part. The dag below gives a general idea on how this section works. Coming back to the division of the files in "main" and "support", we'll focus on the wrangling applied to the main files.
+Here comes the trickier part. The DAG below gives a general idea of how this section works. Returning to the division of the files into "main" and "support", we'll focus on the wrangling applied to the main files
 Although some cleaning was applied to *_Government measures_* and *_Vaccinations_* before, I'll report it here again for clarity and coherence.
 
 ![Staging](Staging_graph_6.png)
@@ -65,11 +70,14 @@ The data here are less reliable than the previous file; the cumulative data for 
 
 For the **Government Measures** file, we only keep the 4 metrics we're interested in: StringencyIndex_Average, GovernmentResponseIndex_Average, ContainmentHealthIndex_Average and EconomicSupportIndex
 
-Additionally, we add the *_Country_Code_* field to each table, to allow merging without losses due to Country names mismatch 
+
+### Converting ISO-Code
+
+All the tables are enriched with the ISO code alpha-3, then **cases & deaths** and **vaccinations** are merged with the population data through the iso code. In this way, we'll be able to compute per-capita statistics.
 
 ### Structure
 
-To give a better understanding of the various  manipolation, is good to have clearly in mind the structure of *_Cases & Deaths_* and *_Vaccinations_*, after cleaning and coversions.
+To give a better understanding of the various next manipolation, is good to have clearly in mind the structure of *_Cases & Deaths_* and *_Vaccinations_*, after cleaning and coversions.
 
 - **Cases & Deaths**: the main fields are [*Date*, *Country_name*, *Country_code*, *New_cases*, *Cumulative_cases*, *New_deaths*, *Cumulative_deaths*]
 
@@ -103,12 +111,15 @@ Here, *_feature_* can assume the following values: *_vaccine_doses_administered_
 
 After all these steps, our tables are ready to be stored in a data warehouse.
 Given the relational and structured nature of our data, the most of obvious choice for the data model was the STAR schema. 
-A graph-based database, in our case, didn't make much sense. Our entities are clear and well defined, the attributes are fixed and shared among all instances within each table.
+A graph-based database, in this case, didn't make much sense. Our entities are clear and well defined, the attributes are fixed and shared among all instances within each table.
 The flexibility of a graph database here doesn't express its potential.
-For all this reasons, we chose Postgres to store our data. 
+For all this reasons, Postgres was chosen to store the data. 
 The fact table is represented by the main **Cases & deaths** table, being the one more used for the analysis. The **Vaccinations** and the **Government Measures** are stored as dimension tables, referring the main one thorugh a composite key made of *_date_* and *_country code_*.
 Moreover, the dimension tables Time and Location are created, to easly change the granularity of the analysis to Continents, Sub-Continents and specify the desired time constraints.
 
+The airflow dag for the staging phase is shown below.
+
+![Staging_dag](Staging_dag.png)
 
 
 ## Production
@@ -118,11 +129,11 @@ Moreover, the dimension tables Time and Location are created, to easly change th
 First, the data are retrieved from the Postgres database through queries that select only the fields and files needed for the visualizations, and they are immediately stored in **dags/files_production**.
 Here, the airflow dag stops an the production is carried on locally.
 
-### Stramlit
+### Streamlit
 
 Finally, we have the data ready to be visualized. Given the types of data, there are many ways and things to visualize. Thus, a Streamlit application is built to give the user the freedom to explore the data in the most appropriate manner.
 
-The code that builds the application is contained in **dags/Streamlit_app.py** and it should be launched by running locally the **dags/Production_notbook.ipynb**.
+The code that builds the application is contained in **dags/Streamlit_app.py** and it should be launched by running locally the **dags/Production_notebook.ipynb**.
 
 To answer the first question (i.e. How did COVID-19 spread globally, and which countries were most severely affected in terms of the number of cases and deaths?), two types of animated plots are used.
 
@@ -153,9 +164,7 @@ This notebook contains pretty much the same analysis as the Streamlit applicatio
 
 - Run the command *_docker compose up_* in the terminal
 
-- Go on *_localhost:8080_*, where you will find the airflow web interface.
-
-- Set the connection **postgres** and **mongo**. The credential for postgres are *username=airflow* and *password=airflow*, for the mongo no username or password have been set, just leave blank spaces.
+- Go on **localhost:8080**, where you will find the airflow web interface.
 
 - Trigger the dag, it will take about 5 minutes to complete.
 
@@ -174,6 +183,10 @@ To guarantee the possibility to test the project without running the dag, two wr
 
 For a deeper and local exploration of the project, the **Production_exploration/Local_project_testing.ipynb** is available. It wraps all the steps executed by the dag but locally, by means of the wrangling functions contained in **Production_exploration/Utils.py**. From the ingestion to the visualization, everything can be tested locally there. Just run all the cells, the markdown comments will guide you through the analysis.  
 
+
+## Future Improvements
+
+Although the visual analysis was successfully explored, and the results are more than satisfactory, the production phase does not cover all the possibilities offered by the data. This is also natural, since this kind of project is scalable in every sense, and the amount of analysis that can be performed is nearly infinite. Other measures could be explored, and other types of correlation (for example, exploiting the statistical derivatives of persons vaccinated and persons fully vaccinated) could be investigated. Additionally, there wasn't enough time to dig government measures file, which would indeed be very interesting to explore, especially regarding the correlation with cases and deaths.
 
 
 

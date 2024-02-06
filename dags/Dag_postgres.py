@@ -43,23 +43,6 @@ default_args = {
 dag = DAG("dag", default_args=default_args, schedule_interval="@daily")
 
 # Functions
-def _create_time_csv():
-    import pandas as pd
-    start_date = f"{2019}-01-01"
-    end_date = f"{2023}-12-31"
-    date_range = pd.date_range(start=start_date, end=end_date, freq="D")
-
-    data = {
-        "Date": date_range,
-        "Week": date_range.isocalendar().week,
-        "Month": date_range.month,
-        "Trimester": (date_range.month - 1) // 3 + 1,
-        "Semester": (date_range.month <= 6).astype(int) + 1,
-        "Year": date_range.year,
-    }
-
-    df = pd.DataFrame(data)
-    df.to_csv("/opt/airflow/dags/postgres/time_table.csv", index=False)
 
 def csv_to_json(filename, header=None):
     import pandas as pd
@@ -644,11 +627,6 @@ with TaskGroup("ingestion", dag=dag) as ingestion:
         trigger_rule="all_success",
         depends_on_past=False,
     )
-    
-    ingestion_middle = DummyOperator(
-        task_id="ingestion_middle",
-        dag=dag,
-    )
 
     # Store the location_csv in MongoDB
     store_location_csv = PythonOperator(
@@ -810,43 +788,6 @@ with TaskGroup("staging", dag=dag) as staging:
         dag=dag,
     )
 
-    '''create_time_table = PostgresOperator(
-        task_id="create_time_table",
-        dag=dag,
-        postgres_conn_id="postgres_default",
-        sql="sql/create_time_table.sql",
-        trigger_rule="all_success",
-    )
-
-    create_location_table = PostgresOperator(
-        task_id="create_location_table",
-        dag=dag,
-        postgres_conn_id="postgres_default",
-        sql="sql/create_location_table.sql",
-        trigger_rule="all_success",
-    )
-
-    create_cases_deaths_table = PostgresOperator(
-        task_id="create_cases_deaths_table",
-        dag=dag,
-        postgres_conn_id="postgres_default",
-        sql="sql/create_cases_deaths_table.sql",
-    )
-
-    create_vaccinations_table = PostgresOperator(
-        task_id="create_vaccinations_table",
-        postgres_conn_id="postgres_default",
-        sql="sql/create_vaccinations_table.sql",
-        dag=dag,
-    )
-
-    create_government_measures_table = PostgresOperator(
-        task_id="create_government_measures_table",
-        postgres_conn_id="postgres_default",
-        sql="sql/create_government_measures_table.sql",
-        dag=dag,
-    )'''
-
     upload_cases_deaths = PythonOperator(
         task_id="upload_cases_deaths",
         python_callable=_upload_cases_deaths,
@@ -940,29 +881,24 @@ staging_start >> [
 (
     [pull_cases_deaths, wrangle_population_data_task, wrangle_location_data_task]
     >> wrangle_cases_deaths_task
-    #>> create_cases_deaths_table
     >> upload_cases_deaths
 )
 (
     [pull_vaccinations, wrangle_population_data_task, wrangle_location_data_task]
     >> wrangle_vaccinations_task
-    #>> create_vaccinations_table
     >> upload_vaccinations
 )
 (
     pull_government_measures
     >> wrangle_government_measures_task
-    #>> create_government_measures_table
     >> upload_government_measures
 )
 (
     pull_location_csv
     >> wrangle_location_data_task
-    #>> create_location_table
     >> upload_location
 )
 pull_population_data >> wrangle_population_data_task
-#staging_start >> create_time_csv >> create_time_table >> upload_time
 staging_start >> create_time_csv >> upload_time
 
 [
