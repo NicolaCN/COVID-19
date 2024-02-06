@@ -170,7 +170,9 @@ This notebook contains pretty much the same analysis as the Streamlit applicatio
 
 ### Off-line Testing 
 
-To guarantee the possibility to test the project without need of connection and without running the dag, two wrangled files at the paths **Production_exploration/files_wrangled/cases_deaths.csv** and **Production_exploration/files_wrangled/vaccinations.csv**. To run the production you can either run the application **Production_exploration/Streamlit_app.py** either the notebook **Production_exploration/Offline_analysis.ipynb**.
+To guarantee the possibility to test the project without running the dag, two wrangled files are available at the paths **Production_exploration/local_files_production/cases_deaths.csv** and **Production_exploration/local_files_production/vaccinations.csv**. To run the production you can launch the application **Production_exploration/Streamlit_app.py** by running the notebook **Production_exploration/Local_streamlit_testing.ipynb**.
+
+For a deeper and local exploration of the project, the **Production_exploration/Local_project_testing.ipynb** is available. It wraps all the steps executed by the dag but locally, by means of the wrangling functions contained in **Production_exploration/Utils.py**. From the ingestion to the visualization, everything can be tested locally there. Just run all the cells, the markdown comments will guide you through the analysis.  
 
 
 

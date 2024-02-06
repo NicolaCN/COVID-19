@@ -237,3 +237,9 @@ def _create_time_csv(dest_path='./files_wrangled/time_table.csv'):
     df = pd.DataFrame(data)
     df.to_csv(dest_path, index=False)
     return df
+
+def _wrangle_location_data(source_path):
+    df = pd.read_csv(source_path)
+    # Apply data wrangling here
+    # ...
+    df.to_csv('./files_wrangled/location.csv', index=False)

@@ -116,7 +116,7 @@ measure_cases = st.selectbox("Metric", ["New_cases_per_million",
                                         "Weekly_pct_growth_cases"])
 
 # Read the data
-cases_deaths_df = pd.read_csv('C:/Users/super/Desktop/DATA_ENGINEERING/Project_git/FODE-23-22/dags/files_wrangled/cases_deaths.csv')
+cases_deaths_df = pd.read_csv('./local_files_production/cases_deaths.csv')
 
 # Create a copy of the dataframe
 df = cases_deaths_df.copy()
@@ -237,7 +237,7 @@ measure_vaccine = st.selectbox("Metric", ["new_vaccine_doses_administered_per_hu
                                           "cumulative_vaccine_doses_administered_per_hundred"])
 
 # Read the data
-vaccinations_df = pd.read_csv('C:/Users/super/Desktop/DATA_ENGINEERING/Project_git/FODE-23-22/Production_exploration/files_wrangled/vaccinations.csv')
+vaccinations_df = pd.read_csv('./local_files_production/vaccinations.csv')
 
 # Create a copy of the dataframe
 df = vaccinations_df.copy()
@@ -276,6 +276,7 @@ for i, country in enumerate(countries):
 
 df = vaccinations_df.copy()
 measure = 'cumulative_vaccine_doses_administered_per_hundred'
+df['date'] = df['date'].astype(str)
 
 for i, country in enumerate(countries):
     mask = df["Country_code"] == country
