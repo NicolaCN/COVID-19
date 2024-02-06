@@ -188,6 +188,8 @@ For a deeper and local exploration of the project, the **Production_exploration/
 
 Although the visual analysis was successfully explored, and the results are more than satisfactory, the production phase does not cover all the possibilities offered by the data. This is also natural, since this kind of project is scalable in every sense, and the amount of analysis that can be performed is nearly infinite. Other measures could be explored, and other types of correlation (for example, exploiting the statistical derivatives of persons vaccinated and persons fully vaccinated) could be investigated. Additionally, there wasn't enough time to dig government measures file, which would indeed be very interesting to explore, especially regarding the correlation with cases and deaths.
 
+Also, launching the streamlit application directly within an airflow operator would be interesting. It was the initial idea but I wasn't able to put it in practice due to issues with port forwarding.
+
 
 
 
