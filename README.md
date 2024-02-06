@@ -54,9 +54,7 @@ Although some cleaning was applied to *_Government measures_* and *_Vaccinations
 
 ![Staging](Staging_graph_6.png)
 
-### Main files
-
-#### Cleaning
+### Cleaning
 
 For **Cases & Deaths**, we select the rows containing negative values for the *new_cases* and *new_deaths* and we convert them into nan values. This also sets the 7-day rolling average to NA for the next 7 days.
 The date is converted to date type and a validity check is performed to make sure that the cumulative cases and deaths are monotonically increasing.
@@ -69,7 +67,7 @@ For the **Government Measures** file, we only keep the 4 metrics we're intereste
 
 Additionally, we add the *_Country_Code_* field to each table, to allow merging without losses due to Country names mismatch 
 
-#### Structure
+### Structure
 
 To give a better understanding of the various  manipolation, is good to have clearly in mind the structure of *_Cases & Deaths_* and *_Vaccinations_*, after cleaning and coversions.
 
@@ -77,7 +75,7 @@ To give a better understanding of the various  manipolation, is good to have cle
 
 - **Vaccinations**: the main fields are [*Date*, *Country_name*, *Country_code*, *New_vaccine_doses_administered*, *Cumulative_vaccine_doses_administered*, *New_persons_vaccinated*, *Cumulative_persons_vaccinated*, *New_persons_fully_vaccinated*, *Cumulative_persons_fully_vaccinated*]
 
-#### Enrichment
+### Enrichment
 
 Now it's time to finally enrich the **Cases & Deaths** and **Vaccinations** tables with some useful statistics. 
 
